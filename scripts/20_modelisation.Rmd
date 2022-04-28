@@ -1,0 +1,161 @@
+---
+title: "Spirlin dans le bassin Adour-Garonne"
+subtitle: "Modélisation"
+author: "OFB"
+date: "`r format(Sys.time(), 'Le %d %B %Y')`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Chargement des packages et des données
+
+```{r}
+library(tidyverse)
+library(aspe)
+library(flextable)
+```
+
+
+# Impact du spirlin sur l'IPR
+
+## Préparation du tableau de données
+
+On part des données prétraitées par le script précédent.
+
+```{r}
+load(file = "../processed_data/spirlin_dfs.RData")
+```
+
+Identifiants des stations avec du spirlin :
+
+```{r}
+sta_avec_spi <- ope_data %>% 
+  filter(eff_spi > 0) %>% 
+  pull(sta_id) %>% 
+  unique()
+```
+
+Sélection et enrichissement du tableau :
+
+- Sélection des données sur les stations avec spirlin
+- Codage d'une variable de présence / absence du spirlin
+- Suppression des opérations sans valeur de l'IPR
+- Ajout des métriques et des libellés des points / stations
+- Sélection des variables d'intérêt
+
+
+```{r}
+mod_data <- ope_data %>% 
+  filter(sta_id %in% sta_avec_spi) %>% 
+  mutate(spi = ifelse(eff_spi > 0,
+                      "Présence",
+                      "Absence")) %>% 
+  mef_ajouter_ipr() %>% 
+  filter(!is.na(ipr)) %>% 
+  mef_ajouter_metriques() %>% 
+  mef_ajouter_libelle() %>% 
+  select(sta_id,
+         pop_id,
+         pop_libelle,
+         annee,
+         spi,
+         ipr,
+         ner:dti) %>% 
+  mutate(pop_id = as.factor(pop_id))
+```
+```{r}
+mod_data %>% 
+  
+```
+
+
+Création d'une fonction qui renvoie les résultats du modèle pour une métrique (ou sur l'IPR, ou sur n'importe quoi du genre). Ici, le modèle employé est linéaire, de la forme :
+
+`métrique ~ pop_id + annee * spi`
+
+On recherche donc les effets indépendants des stations, de l'année, de la présence du spirlin, et du terme d'interaction `spi x annee` pour détecter si les pentes temporelles diffèrent en présence et en absence de spirlin. 
+ 
+
+```{r}
+modeliser_1_metrique <- function(model_data, metrique) {
+
+fm <- as.formula(paste0(metrique, " ~ pop_id + annee * spi"))
+
+mod <- lm(formula = fm,
+          data = model_data)
+
+resultat <- summary(mod)$coefficients[c("annee", "spiPrésence", "annee:spiPrésence"),] %>%
+  as.data.frame() %>%
+  select(coef = Estimate, pval = `Pr(>|t|)`) %>%
+  mutate(sig = case_when(pval > 0.05 ~ "NS",
+                         pval <= 0.05 & pval > 0.01 ~ "*",
+                         pval <= 0.01 & pval > 0.001 ~ "**",
+                         TRUE ~ "***" )) %>%
+  mutate(text = paste0(round(coef, 4), " (", sig, ")")) %>%
+  select(text) %>%
+  t()
+
+row.names(resultat) <- metrique
+
+resultat
+
+}
+```
+
+Essai sur l'IPR
+
+```{r}
+modeliser_1_metrique(model_data = mod_data,
+                     metrique = "ipr")
+```
+
+Vecteur contenant les noms des métriques à modéliser (à partir des noms des colonnes entre ipr et dti).
+
+```{r}
+mes_metriques <- mod_data %>% 
+  select(ipr:dti) %>% 
+  colnames()
+```
+
+Modélisation sur l'ensemble.
+
+```{r}
+modeles <- map(.x = mes_metriques,
+               .f = modeliser_1_metrique,
+               model_data = mod_data) %>% 
+  reduce(rbind) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(Métrique = rowname,
+         Année = annee)
+```
+
+Affichage. L'IPR est distingué par l'arrière-plan de couleur.
+
+```{r}
+modeles %>% 
+  flextable() %>% 
+  align(j = 2:4, align = "center", part = "all") %>% 
+  set_table_properties(layout = "autofit", width = 1) %>% 
+  bg(i = 1, bg = "lightgreen")
+```
+
+## Interprétation
+
+Une ligne représente une métrique. On voit, pour chacune des variables explicatives, le coefficient associé, et entre parenthèses le niveau de significativité :
+
+- (NS) non significatif au seuil de 5%
+- (*) p < 5%
+- (**) p < 1%
+- (***) p < 0.1%
+
+Pour l'IPR, on a un effet `année` significatif avec une pente négative $\Rightarrow$ la situation s'améliore au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) n'est pas significatif au seuil de 5%, pas plus que le terme d'interaction `annee:spiPrésence`.
+
+
