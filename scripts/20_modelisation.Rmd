@@ -70,9 +70,22 @@ mod_data <- ope_data %>%
          ner:dti) %>% 
   mutate(pop_id = as.factor(pop_id))
 ```
+
+## Distribution des variables
+
 ```{r}
-mod_data %>% 
-  
+gg <- mod_data %>% 
+  pivot_longer(cols = ipr:dti,
+               names_to = "metrique",
+               values_to = "valeur") %>% 
+  ggplot(aes(x = valeur)) +
+    geom_histogram() +
+    facet_wrap(~ metrique,
+               scales = "free")
+
+gg
+
+gg + scale_x_log10()
 ```
 
 
