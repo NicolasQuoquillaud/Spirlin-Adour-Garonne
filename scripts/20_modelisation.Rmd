@@ -73,6 +73,8 @@ mod_data <- ope_data %>%
 
 ## Distribution des variables
 
+Sans transformation :
+
 ```{r}
 gg <- mod_data %>% 
   pivot_longer(cols = ipr:dti,
@@ -84,9 +86,15 @@ gg <- mod_data %>%
                scales = "free")
 
 gg
+```
 
+Transformation log :
+
+```{r}
 gg + scale_x_log10()
 ```
+
+## Construction des outils
 
 
 Création d'une fonction qui renvoie les résultats du modèle pour une métrique (ou sur l'IPR, ou sur n'importe quoi du genre). Ici, le modèle employé est linéaire, de la forme :
@@ -128,6 +136,8 @@ Essai sur l'IPR
 modeliser_1_metrique(model_data = mod_data,
                      metrique = "ipr")
 ```
+
+## Application
 
 Vecteur contenant les noms des métriques à modéliser (à partir des noms des colonnes entre ipr et dti).
 
