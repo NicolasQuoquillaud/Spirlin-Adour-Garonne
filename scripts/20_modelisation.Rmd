@@ -253,7 +253,7 @@ L'intercept du modèle est sa constante. C'est la valeur que prendrait la métri
 
 **Exemple sur le tableau sans interaction :**
 
-Pour la métrique `ner`, on a un effet `année` significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(Année)`. Ce coefficient est positif $\Rightarrow$ la métrique augmente au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) est significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence)`. Les valeurs du log de la métriques, quelle que soit l'année, sont donc inférieures de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence) %>% str_replace(" \\s*\\([^\\)]+\\)", "")` en présence du spirlin par rapport à son absence.
+Pour la métrique `ner`, on a un effet `année` significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(Année) %>% str_replace(" \\s*\\([^\\)]+\\)", "")`. Ce coefficient est positif $\Rightarrow$ la métrique augmente au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) est significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence)`. Les valeurs du log de la métriques, quelle que soit l'année, sont donc inférieures de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence) %>% str_replace(" \\s*\\([^\\)]+\\)", "")` en présence du spirlin par rapport à son absence.
 
 
 **Exemple sur le tableau avec interaction :**
