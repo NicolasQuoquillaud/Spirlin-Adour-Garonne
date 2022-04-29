@@ -99,9 +99,8 @@ gg + scale_x_log10()
 On transforme donc les métriques mais pas l'année où ça n'apporte rien.
 
 ```{r}
-mod_data <- mod_data %>% 
-  mutate_at(.vars = vars(ipr:dti),
-            .funs = log)
+mod_data <- mod_data %>%
+  mutate(across(ipr:dti, ~ log(.)))
 ```
 
 
@@ -117,18 +116,31 @@ On recherche donc les effets indépendants des stations, de l'année, de la pré
  
 
 ```{r}
-lm_1_metrique <- function(model_data, metrique) {
+lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
   
   # construction de la formule en fonction de la variable dépendante
-  fm <- as.formula(paste0(metrique,
-                          " ~ pop_id + annee * spi")) 
+  if (interaction) {
+    fm <- as.formula(paste0(metrique,
+                            " ~ pop_id + annee * spi"))
+  } else {
+    fm <- as.formula(paste0(metrique,
+                            " ~ pop_id + annee + spi"))
+  }
+
   # on cale le modèle
   mod <- lm(formula = fm, 
             data = model_data)
   
   # récupération de ce qui ous intéresse dans les résultats et mise en forme
+    if (interaction) {
   resultat <-
-    summary(mod)$coefficients[c("annee", "spiPrésence", "annee:spiPrésence"), ] %>%
+    summary(mod)$coefficients[c("(Intercept)", "annee", "spiPrésence", "annee:spiPrésence"), ]
+    } else {
+    resultat <-
+    summary(mod)$coefficients[c("(Intercept)", "annee", "spiPrésence"), ]
+    }
+    
+  resultat <-resultat %>%   
     as.data.frame() %>%
     select(coef = Estimate,
            pval = `Pr(>|t|)`) %>%
@@ -140,7 +152,7 @@ lm_1_metrique <- function(model_data, metrique) {
         TRUE ~ "***"
       )
     ) %>%
-    mutate(text = paste0(round(coef, 4),
+    mutate(text = paste0(round(coef, 3),
                          " (",
                          sig,
                          ")"
@@ -161,7 +173,8 @@ Essai sur l'IPR
 
 ```{r}
 lm_1_metrique(model_data = mod_data,
-              metrique = "ipr")
+              metrique = "ipr",
+              interaction = FALSE)
 ```
 
 ## Application
@@ -181,22 +194,46 @@ Modélisation sur l'ensemble.
 La fonction `map()` permet d'appliquer la fonction non pas à une métrique, mais à l'ensemble de métriques du vecteur `mes_metriques`. Elle retourne une liste de `dataframes` (un par métrique). Ces dataframes sont ensuite empilés et on récupère les noms des lignes dans une colonne puis on renomme certaines colonnes. 
 
 ```{r}
-modeles <- map(.x = mes_metriques,
-               .f = lm_1_metrique,
-               model_data = mod_data) %>% 
+res_avec_inter <- map(.x = mes_metriques,
+                      .f = lm_1_metrique,
+                      model_data = mod_data) %>% 
   reduce(rbind) %>% 
   as.data.frame() %>% 
   rownames_to_column() %>% 
-  rename(Métrique = rowname,
+  rename(Intercept = `(Intercept)`,
+         Métrique = rowname,
+         Année = annee)
+
+res_sans_inter <- map(.x = mes_metriques,
+                      .f = lm_1_metrique,
+                      model_data = mod_data,
+                      interaction = FALSE) %>% 
+  reduce(rbind) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  rename(Intercept = `(Intercept)`,
+         Métrique = rowname,
          Année = annee)
 ```
 
-Affichage. L'IPR est distingué par l'arrière-plan de couleur.
+Affichage. Le tableau est mis en forme avec les fonctions du package `flextable`. L'IPR est distingué par l'arrière-plan de couleur.
+
+Sans interaction `annee:spiPrésence` :
 
 ```{r}
-modeles %>% 
+res_sans_inter %>% 
   flextable() %>% 
   align(j = 2:4, align = "center", part = "all") %>% 
+  set_table_properties(layout = "autofit", width = 1) %>% 
+  bg(i = 1, bg = "lightgreen")
+```
+
+Avec interaction `annee:spiPrésence` :
+
+```{r}
+res_avec_inter %>% 
+  flextable() %>% 
+  align(j = 2:5, align = "center", part = "all") %>% 
   set_table_properties(layout = "autofit", width = 1) %>% 
   bg(i = 1, bg = "lightgreen")
 ```
@@ -210,6 +247,21 @@ Une ligne représente une métrique. On voit, pour chacune des variables explica
 - (**) p < 1%
 - (***) p < 0.1%
 
-Pour l'IPR, on a un effet `année` significatif avec une pente négative $\Rightarrow$ la situation s'améliore au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) n'est pas significatif au seuil de 5%, pas plus que le terme d'interaction `annee:spiPrésence`.
+On entend par significativité le fait d'être significativement différent de zéro.
+
+L'intercept du modèle est sa constante. C'est la valeur que prendrait la métrique (ici en fait le log de la métrique) en l'an zéro en l'absence de spirlin.
+
+**Exemple sur le tableau sans interaction :**
+
+Pour la métrique `ner`, on a un effet `année` significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(Année)`. Ce coefficient est positif $\Rightarrow$ la métrique augmente au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) est significatif avec un coefficient de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence)`. Les valeurs du log de la métriques, quelle que soit l'année, sont donc inférieures de `r res_sans_inter %>% filter(Métrique == "ner") %>% pull(spiPrésence) %>% str_replace(" \\s*\\([^\\)]+\\)", "")` en présence du spirlin par rapport à son absence.
+
+
+**Exemple sur le tableau avec interaction :**
+
+Pour la métrique `dit`, on a un effet `année` significatif avec un coefficient de `r res_avec_inter %>% filter(Métrique == "dit") %>% pull(Année)`. Ce coefficient est négatif $\Rightarrow$ la métrique diminue au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) n'est pas significatif au seuil de 5%, pas plus que le terme d'interaction `annee:spiPrésence`.
+
+Pour la métrique `dii`, on n'a pas d'effet `année` significatif $\Rightarrow$ la situation est stable au fil du temps, en moyenne sur l'ensemble des stations. L'effet de la présence du spirlin (`spiPrésence`) est significatif avec un coefficient de `r res_avec_inter %>% filter(Métrique == "dii") %>% pull(spiPrésence) %>% str_replace(" \\s*\\([^\\)]+\\)", "")`. La métrique est donc plus élevée en présence de spirlin en l'an zéro. Le terme d'interaction `annee:spiPrésence` est significatif avec un coefficient de `r res_avec_inter %>% filter(Métrique == "dii") %>% pull("annee:spiPrésence")` donc en présence de spirlin, la métrique diminue au fil du temps.
+
+
 
 
