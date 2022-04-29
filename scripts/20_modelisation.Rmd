@@ -77,7 +77,7 @@ Sans transformation :
 
 ```{r}
 gg <- mod_data %>% 
-  pivot_longer(cols = ipr:dti,
+  pivot_longer(cols = c(ipr:dti, annee),
                names_to = "metrique",
                values_to = "valeur") %>% 
   ggplot(aes(x = valeur)) +
@@ -88,11 +88,23 @@ gg <- mod_data %>%
 gg
 ```
 
-Transformation log :
+Certaines métriques sont distribuées de manière très asymétrique (en particulier `dii`), donc on essaye une transformation log :
 
 ```{r}
 gg + scale_x_log10()
 ```
+
+>Les distributions sont plus proches de distributions en cloche après transformations log.
+
+On transforme donc les métriques mais pas l'année où ça n'apporte rien.
+
+```{r}
+mod_data <- mod_data %>% 
+  mutate_at(.vars = vars(ipr:dti),
+            .funs = log)
+```
+
+
 
 ## Construction des outils
 
@@ -105,36 +117,51 @@ On recherche donc les effets indépendants des stations, de l'année, de la pré
  
 
 ```{r}
-modeliser_1_metrique <- function(model_data, metrique) {
-
-fm <- as.formula(paste0(metrique, " ~ pop_id + annee * spi"))
-
-mod <- lm(formula = fm,
-          data = model_data)
-
-resultat <- summary(mod)$coefficients[c("annee", "spiPrésence", "annee:spiPrésence"),] %>%
-  as.data.frame() %>%
-  select(coef = Estimate, pval = `Pr(>|t|)`) %>%
-  mutate(sig = case_when(pval > 0.05 ~ "NS",
-                         pval <= 0.05 & pval > 0.01 ~ "*",
-                         pval <= 0.01 & pval > 0.001 ~ "**",
-                         TRUE ~ "***" )) %>%
-  mutate(text = paste0(round(coef, 4), " (", sig, ")")) %>%
-  select(text) %>%
-  t()
-
-row.names(resultat) <- metrique
-
-resultat
-
+lm_1_metrique <- function(model_data, metrique) {
+  
+  # construction de la formule en fonction de la variable dépendante
+  fm <- as.formula(paste0(metrique,
+                          " ~ pop_id + annee * spi")) 
+  # on cale le modèle
+  mod <- lm(formula = fm, 
+            data = model_data)
+  
+  # récupération de ce qui ous intéresse dans les résultats et mise en forme
+  resultat <-
+    summary(mod)$coefficients[c("annee", "spiPrésence", "annee:spiPrésence"), ] %>%
+    as.data.frame() %>%
+    select(coef = Estimate,
+           pval = `Pr(>|t|)`) %>%
+    mutate(
+      sig = case_when(
+        pval > 0.05 ~ "NS",
+        pval <= 0.05 & pval > 0.01 ~ "*",
+        pval <= 0.01 & pval > 0.001 ~ "**",
+        TRUE ~ "***"
+      )
+    ) %>%
+    mutate(text = paste0(round(coef, 4),
+                         " (",
+                         sig,
+                         ")"
+    )) %>%
+    select(text) %>%
+    t()
+  
+  # on nomme la ligne d'après le nom de la métrique
+  row.names(resultat) <- metrique
+  
+  # sortie
+  resultat
+  
 }
 ```
 
 Essai sur l'IPR
 
 ```{r}
-modeliser_1_metrique(model_data = mod_data,
-                     metrique = "ipr")
+lm_1_metrique(model_data = mod_data,
+              metrique = "ipr")
 ```
 
 ## Application
@@ -145,13 +172,17 @@ Vecteur contenant les noms des métriques à modéliser (à partir des noms des 
 mes_metriques <- mod_data %>% 
   select(ipr:dti) %>% 
   colnames()
+
+mes_metriques
 ```
 
 Modélisation sur l'ensemble.
 
+La fonction `map()` permet d'appliquer la fonction non pas à une métrique, mais à l'ensemble de métriques du vecteur `mes_metriques`. Elle retourne une liste de `dataframes` (un par métrique). Ces dataframes sont ensuite empilés et on récupère les noms des lignes dans une colonne puis on renomme certaines colonnes. 
+
 ```{r}
 modeles <- map(.x = mes_metriques,
-               .f = modeliser_1_metrique,
+               .f = lm_1_metrique,
                model_data = mod_data) %>% 
   reduce(rbind) %>% 
   as.data.frame() %>% 
