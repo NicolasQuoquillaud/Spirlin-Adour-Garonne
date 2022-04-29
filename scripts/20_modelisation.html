@@ -325,66 +325,111 @@ gg</code></pre>
 <p>Les distributions sont plus proches de distributions en cloche après transformations log.</p>
 </blockquote>
 <p>On transforme donc les métriques mais pas l’année où ça n’apporte rien.</p>
-<pre class="r"><code>mod_data &lt;- mod_data %&gt;% 
-  mutate_at(.vars = vars(ipr:dti),
-            .funs = log)</code></pre>
+<pre class="r"><code>mod_data &lt;- mod_data %&gt;%
+  mutate(across(ipr:dti, ~ log(.)))</code></pre>
 </div>
 <div id="construction-des-outils" class="section level2">
 <h2>Construction des outils</h2>
 <p>Création d’une fonction qui renvoie les résultats du modèle pour une métrique (ou sur l’IPR, ou sur n’importe quoi du genre). Ici, le modèle employé est linéaire, de la forme :</p>
 <p><code>métrique ~ pop_id + annee * spi</code></p>
 <p>On recherche donc les effets indépendants des stations, de l’année, de la présence du spirlin, et du terme d’interaction <code>spi x annee</code> pour détecter si les pentes temporelles diffèrent en présence et en absence de spirlin.</p>
-<pre class="r"><code>lm_1_metrique &lt;- function(model_data, metrique) {
+<pre class="r"><code>lm_1_metrique &lt;- function(model_data, metrique, interaction = TRUE) {
+  
+  # construction de la formule en fonction de la variable dépendante
+  if (interaction) {
+    fm &lt;- as.formula(paste0(metrique,
+                            &quot; ~ pop_id + annee * spi&quot;))
+  } else {
+    fm &lt;- as.formula(paste0(metrique,
+                            &quot; ~ pop_id + annee + spi&quot;))
+  }
 
-fm &lt;- as.formula(paste0(metrique, &quot; ~ pop_id + annee * spi&quot;))
-
-mod &lt;- lm(formula = fm,
-          data = model_data)
-
-resultat &lt;- summary(mod)$coefficients[c(&quot;annee&quot;, &quot;spiPrésence&quot;, &quot;annee:spiPrésence&quot;),] %&gt;%
-  as.data.frame() %&gt;%
-  select(coef = Estimate, pval = `Pr(&gt;|t|)`) %&gt;%
-  mutate(sig = case_when(pval &gt; 0.05 ~ &quot;NS&quot;,
-                         pval &lt;= 0.05 &amp; pval &gt; 0.01 ~ &quot;*&quot;,
-                         pval &lt;= 0.01 &amp; pval &gt; 0.001 ~ &quot;**&quot;,
-                         TRUE ~ &quot;***&quot; )) %&gt;%
-  mutate(text = paste0(round(coef, 4), &quot; (&quot;, sig, &quot;)&quot;)) %&gt;%
-  select(text) %&gt;%
-  t()
-
-row.names(resultat) &lt;- metrique
-
-resultat
-
+  # on cale le modèle
+  mod &lt;- lm(formula = fm, 
+            data = model_data)
+  
+  # récupération de ce qui ous intéresse dans les résultats et mise en forme
+    if (interaction) {
+  resultat &lt;-
+    summary(mod)$coefficients[c(&quot;(Intercept)&quot;, &quot;annee&quot;, &quot;spiPrésence&quot;, &quot;annee:spiPrésence&quot;), ]
+    } else {
+    resultat &lt;-
+    summary(mod)$coefficients[c(&quot;(Intercept)&quot;, &quot;annee&quot;, &quot;spiPrésence&quot;), ]
+    }
+    
+  resultat &lt;-resultat %&gt;%   
+    as.data.frame() %&gt;%
+    select(coef = Estimate,
+           pval = `Pr(&gt;|t|)`) %&gt;%
+    mutate(
+      sig = case_when(
+        pval &gt; 0.05 ~ &quot;NS&quot;,
+        pval &lt;= 0.05 &amp; pval &gt; 0.01 ~ &quot;*&quot;,
+        pval &lt;= 0.01 &amp; pval &gt; 0.001 ~ &quot;**&quot;,
+        TRUE ~ &quot;***&quot;
+      )
+    ) %&gt;%
+    mutate(text = paste0(round(coef, 3),
+                         &quot; (&quot;,
+                         sig,
+                         &quot;)&quot;
+    )) %&gt;%
+    select(text) %&gt;%
+    t()
+  
+  # on nomme la ligne d&#39;après le nom de la métrique
+  row.names(resultat) &lt;- metrique
+  
+  # sortie
+  resultat
+  
 }</code></pre>
 <p>Essai sur l’IPR</p>
 <pre class="r"><code>lm_1_metrique(model_data = mod_data,
-                     metrique = &quot;ipr&quot;)</code></pre>
-<pre><code>##     annee          spiPrésence    annee:spiPrésence
-## ipr &quot;-0.0063 (NS)&quot; &quot;12.7486 (NS)&quot; &quot;-0.0064 (NS)&quot;</code></pre>
+              metrique = &quot;ipr&quot;,
+              interaction = FALSE)</code></pre>
+<pre><code>##     (Intercept)   annee        spiPrésence  
+## ipr &quot;17.954 (**)&quot; &quot;-0.007 (*)&quot; &quot;-0.091 (NS)&quot;</code></pre>
 </div>
 <div id="application" class="section level2">
 <h2>Application</h2>
 <p>Vecteur contenant les noms des métriques à modéliser (à partir des noms des colonnes entre ipr et dti).</p>
 <pre class="r"><code>mes_metriques &lt;- mod_data %&gt;% 
   select(ipr:dti) %&gt;% 
-  colnames()</code></pre>
+  colnames()
+
+mes_metriques</code></pre>
+<pre><code>## [1] &quot;ipr&quot; &quot;ner&quot; &quot;nel&quot; &quot;nte&quot; &quot;dit&quot; &quot;dio&quot; &quot;dii&quot; &quot;dti&quot;</code></pre>
 <p>Modélisation sur l’ensemble.</p>
-<pre class="r"><code>modeles &lt;- map(.x = mes_metriques,
-               .f = lm_1_metrique,
-               model_data = mod_data) %&gt;% 
+<p>La fonction <code>map()</code> permet d’appliquer la fonction non pas à une métrique, mais à l’ensemble de métriques du vecteur <code>mes_metriques</code>. Elle retourne une liste de <code>dataframes</code> (un par métrique). Ces dataframes sont ensuite empilés et on récupère les noms des lignes dans une colonne puis on renomme certaines colonnes.</p>
+<pre class="r"><code>res_avec_inter &lt;- map(.x = mes_metriques,
+                      .f = lm_1_metrique,
+                      model_data = mod_data) %&gt;% 
   reduce(rbind) %&gt;% 
   as.data.frame() %&gt;% 
   rownames_to_column() %&gt;% 
-  rename(Métrique = rowname,
+  rename(Intercept = `(Intercept)`,
+         Métrique = rowname,
+         Année = annee)
+
+res_sans_inter &lt;- map(.x = mes_metriques,
+                      .f = lm_1_metrique,
+                      model_data = mod_data,
+                      interaction = FALSE) %&gt;% 
+  reduce(rbind) %&gt;% 
+  as.data.frame() %&gt;% 
+  rownames_to_column() %&gt;% 
+  rename(Intercept = `(Intercept)`,
+         Métrique = rowname,
          Année = annee)</code></pre>
-<p>Affichage. L’IPR est distingué par l’arrière-plan de couleur.</p>
-<pre class="r"><code>modeles %&gt;% 
+<p>Affichage. Le tableau est mis en forme avec les fonctions du package <code>flextable</code>. L’IPR est distingué par l’arrière-plan de couleur.</p>
+<p>Sans interaction <code>annee:spiPrésence</code> :</p>
+<pre class="r"><code>res_sans_inter %&gt;% 
   flextable() %&gt;% 
   align(j = 2:4, align = &quot;center&quot;, part = &quot;all&quot;) %&gt;% 
   set_table_properties(layout = &quot;autofit&quot;, width = 1) %&gt;% 
   bg(i = 1, bg = &quot;lightgreen&quot;)</code></pre>
-<template id="73f69030-bcf8-484f-94ab-5b49b4d1d41f"><style>
+<template id="589f65f1-63e7-4c19-bdfb-9e0bf7e43855"><style>
 .tabwid table{
   border-spacing:0px !important;
   border-collapse:collapse;
@@ -418,12 +463,70 @@ resultat
 .tabwid table tr {
 background-color: transparent;
 }
-</style><div class="tabwid"><style>.cl-856e2788{table-layout:auto;width:100%;}.cl-8565c8cc{font-family:'Arial';font-size:11pt;font-weight:normal;font-style:normal;text-decoration:none;color:rgba(0, 0, 0, 1.00);background-color:transparent;}.cl-8565c8cd{margin:0;text-align:left;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-8565c8ce{margin:0;text-align:center;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-8566184a{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-8566184b{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-8566184c{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-8566184d{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-8566184e{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-8566184f{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-85661850{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-85661851{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}</style><table class="cl-856e2788">
-<thead><tr style="overflow-wrap:break-word;"><td class="cl-85661851"><p class="cl-8565c8cd"><span class="cl-8565c8cc">Métrique</span></p></td><td class="cl-85661850"><p class="cl-8565c8ce"><span class="cl-8565c8cc">Année</span></p></td><td class="cl-85661850"><p class="cl-8565c8ce"><span class="cl-8565c8cc">spiPrésence</span></p></td><td class="cl-85661850"><p class="cl-8565c8ce"><span class="cl-8565c8cc">annee:spiPrésence</span></p></td></tr></thead><tbody><tr style="overflow-wrap:break-word;"><td class="cl-8566184b"><p class="cl-8565c8cd"><span class="cl-8565c8cc">ipr</span></p></td><td class="cl-8566184a"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0063 (NS)</span></p></td><td class="cl-8566184a"><p class="cl-8565c8ce"><span class="cl-8565c8cc">12.7486 (NS)</span></p></td><td class="cl-8566184a"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0064 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">ner</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0123 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-93.4204 (**)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0458 (**)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">nel</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0011 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-78.7752 (*)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0383 (*)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">nte</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0076 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">88.3695 (*)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0438 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">dit</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0143 (**)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-12.8044 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0065 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">dio</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.0114 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-25.8177 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0129 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184d"><p class="cl-8565c8cd"><span class="cl-8565c8cc">dii</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0157 (NS)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">201.9377 (***)</span></p></td><td class="cl-8566184c"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-0.1006 (***)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-8566184e"><p class="cl-8565c8cd"><span class="cl-8565c8cc">dti</span></p></td><td class="cl-8566184f"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.004 (NS)</span></p></td><td class="cl-8566184f"><p class="cl-8565c8ce"><span class="cl-8565c8cc">-60.6263 (NS)</span></p></td><td class="cl-8566184f"><p class="cl-8565c8ce"><span class="cl-8565c8cc">0.0301 (NS)</span></p></td></tr></tbody></table></div></template>
-<div class="flextable-shadow-host" id="7dbe3873-832f-46b8-b62d-7b99199ea67d"></div>
+</style><div class="tabwid"><style>.cl-328feb92{table-layout:auto;width:100%;}.cl-32876738{font-family:'Arial';font-size:11pt;font-weight:normal;font-style:normal;text-decoration:none;color:rgba(0, 0, 0, 1.00);background-color:transparent;}.cl-32878e34{margin:0;text-align:left;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-32878e35{margin:0;text-align:center;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-3287b558{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b559{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55a{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55b{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55c{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55d{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55e{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-3287b55f{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}</style><table class="cl-328feb92">
+<thead><tr style="overflow-wrap:break-word;"><td class="cl-3287b55f"><p class="cl-32878e34"><span class="cl-32876738">Métrique</span></p></td><td class="cl-3287b55e"><p class="cl-32878e35"><span class="cl-32876738">Intercept</span></p></td><td class="cl-3287b55e"><p class="cl-32878e35"><span class="cl-32876738">Année</span></p></td><td class="cl-3287b55e"><p class="cl-32878e35"><span class="cl-32876738">spiPrésence</span></p></td></tr></thead><tbody><tr style="overflow-wrap:break-word;"><td class="cl-3287b559"><p class="cl-32878e34"><span class="cl-32876738">ipr</span></p></td><td class="cl-3287b558"><p class="cl-32878e35"><span class="cl-32876738">17.954 (**)</span></p></td><td class="cl-3287b558"><p class="cl-32878e35"><span class="cl-32876738">-0.007 (*)</span></p></td><td class="cl-3287b558"><p class="cl-32878e35"><span class="cl-32876738">-0.091 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">ner</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-41.072 (*)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0.02 (*)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-1.093 (***)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">nel</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-10.96 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0.005 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-1.484 (***)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">nte</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">1.007 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0.093 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">dit</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">28.037 (**)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-0.013 (**)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0.2 (**)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">dio</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">20.751 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-0.009 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">0.155 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55b"><p class="cl-32878e34"><span class="cl-32876738">dii</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">1.631 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-0.001 (NS)</span></p></td><td class="cl-3287b55a"><p class="cl-32878e35"><span class="cl-32876738">-0.902 (***)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-3287b55c"><p class="cl-32878e34"><span class="cl-32876738">dti</span></p></td><td class="cl-3287b55d"><p class="cl-32878e35"><span class="cl-32876738">-16.89 (NS)</span></p></td><td class="cl-3287b55d"><p class="cl-32878e35"><span class="cl-32876738">0.009 (NS)</span></p></td><td class="cl-3287b55d"><p class="cl-32878e35"><span class="cl-32876738">0.088 (NS)</span></p></td></tr></tbody></table></div></template>
+<div class="flextable-shadow-host" id="af9b6d9a-7063-41aa-b8eb-de26c5f8a1cf"></div>
 <script>
-var dest = document.getElementById("7dbe3873-832f-46b8-b62d-7b99199ea67d");
-var template = document.getElementById("73f69030-bcf8-484f-94ab-5b49b4d1d41f");
+var dest = document.getElementById("af9b6d9a-7063-41aa-b8eb-de26c5f8a1cf");
+var template = document.getElementById("589f65f1-63e7-4c19-bdfb-9e0bf7e43855");
+var caption = template.content.querySelector("caption");
+if(caption) {
+  caption.style.cssText = "display:block;text-align:center;";
+  var newcapt = document.createElement("p");
+  newcapt.appendChild(caption)
+  dest.parentNode.insertBefore(newcapt, dest.previousSibling);
+}
+var fantome = dest.attachShadow({mode: 'open'});
+var templateContent = template.content;
+fantome.appendChild(templateContent);
+</script>
+
+<p>Avec interaction <code>annee:spiPrésence</code> :</p>
+<pre class="r"><code>res_avec_inter %&gt;% 
+  flextable() %&gt;% 
+  align(j = 2:5, align = &quot;center&quot;, part = &quot;all&quot;) %&gt;% 
+  set_table_properties(layout = &quot;autofit&quot;, width = 1) %&gt;% 
+  bg(i = 1, bg = &quot;lightgreen&quot;)</code></pre>
+<template id="ea0db3cd-5d23-4b72-87cf-c75db9b5da5b"><style>
+.tabwid table{
+  border-spacing:0px !important;
+  border-collapse:collapse;
+  line-height:1;
+  margin-left:auto;
+  margin-right:auto;
+  border-width: 0;
+  display: table;
+  margin-top: 1.275em;
+  margin-bottom: 1.275em;
+  border-color: transparent;
+}
+.tabwid_left table{
+  margin-left:0;
+}
+.tabwid_right table{
+  margin-right:0;
+}
+.tabwid td {
+    padding: 0;
+}
+.tabwid a {
+  text-decoration: none;
+}
+.tabwid thead {
+    background-color: transparent;
+}
+.tabwid tfoot {
+    background-color: transparent;
+}
+.tabwid table tr {
+background-color: transparent;
+}
+</style><div class="tabwid"><style>.cl-32a6c09c{table-layout:auto;width:100%;}.cl-329efdb2{font-family:'Arial';font-size:11pt;font-weight:normal;font-style:normal;text-decoration:none;color:rgba(0, 0, 0, 1.00);background-color:transparent;}.cl-329f24ae{margin:0;text-align:left;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-329f24af{margin:0;text-align:center;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);padding-bottom:5pt;padding-top:5pt;padding-left:5pt;padding-right:5pt;line-height: 1;background-color:transparent;}.cl-329f4bfa{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4bfb{background-color:rgba(144, 238, 144, 1.00);vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4bfc{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4bfd{background-color:transparent;vertical-align: middle;border-bottom: 0 solid rgba(0, 0, 0, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4bfe{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4bff{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 0 solid rgba(0, 0, 0, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4c00{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}.cl-329f4c01{background-color:transparent;vertical-align: middle;border-bottom: 2pt solid rgba(102, 102, 102, 1.00);border-top: 2pt solid rgba(102, 102, 102, 1.00);border-left: 0 solid rgba(0, 0, 0, 1.00);border-right: 0 solid rgba(0, 0, 0, 1.00);margin-bottom:0;margin-top:0;margin-left:0;margin-right:0;}</style><table class="cl-32a6c09c">
+<thead><tr style="overflow-wrap:break-word;"><td class="cl-329f4c01"><p class="cl-329f24ae"><span class="cl-329efdb2">Métrique</span></p></td><td class="cl-329f4c00"><p class="cl-329f24af"><span class="cl-329efdb2">Intercept</span></p></td><td class="cl-329f4c00"><p class="cl-329f24af"><span class="cl-329efdb2">Année</span></p></td><td class="cl-329f4c00"><p class="cl-329f24af"><span class="cl-329efdb2">spiPrésence</span></p></td><td class="cl-329f4c00"><p class="cl-329f24af"><span class="cl-329efdb2">annee:spiPrésence</span></p></td></tr></thead><tbody><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfb"><p class="cl-329f24ae"><span class="cl-329efdb2">ipr</span></p></td><td class="cl-329f4bfa"><p class="cl-329f24af"><span class="cl-329efdb2">15.827 (*)</span></p></td><td class="cl-329f4bfa"><p class="cl-329f24af"><span class="cl-329efdb2">-0.006 (NS)</span></p></td><td class="cl-329f4bfa"><p class="cl-329f24af"><span class="cl-329efdb2">12.749 (NS)</span></p></td><td class="cl-329f4bfa"><p class="cl-329f24af"><span class="cl-329efdb2">-0.006 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">ner</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-25.775 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.012 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-93.42 (**)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.046 (**)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">nel</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">1.846 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-0.001 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-78.775 (*)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.038 (*)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">nte</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-13.619 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.008 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">88.369 (*)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-0.044 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">dit</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">30.191 (**)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-0.014 (**)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-12.804 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.006 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">dio</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">25.054 (*)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-0.011 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-25.818 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.013 (NS)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bfd"><p class="cl-329f24ae"><span class="cl-329efdb2">dii</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-31.976 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">0.016 (NS)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">201.938 (***)</span></p></td><td class="cl-329f4bfc"><p class="cl-329f24af"><span class="cl-329efdb2">-0.101 (***)</span></p></td></tr><tr style="overflow-wrap:break-word;"><td class="cl-329f4bff"><p class="cl-329f24ae"><span class="cl-329efdb2">dti</span></p></td><td class="cl-329f4bfe"><p class="cl-329f24af"><span class="cl-329efdb2">-6.831 (NS)</span></p></td><td class="cl-329f4bfe"><p class="cl-329f24af"><span class="cl-329efdb2">0.004 (NS)</span></p></td><td class="cl-329f4bfe"><p class="cl-329f24af"><span class="cl-329efdb2">-60.626 (NS)</span></p></td><td class="cl-329f4bfe"><p class="cl-329f24af"><span class="cl-329efdb2">0.03 (NS)</span></p></td></tr></tbody></table></div></template>
+<div class="flextable-shadow-host" id="f4f4f772-3351-4455-87bb-85bfbf647a23"></div>
+<script>
+var dest = document.getElementById("f4f4f772-3351-4455-87bb-85bfbf647a23");
+var template = document.getElementById("ea0db3cd-5d23-4b72-87cf-c75db9b5da5b");
 var caption = template.content.querySelector("caption");
 if(caption) {
   caption.style.cssText = "display:block;text-align:center;";
@@ -446,7 +549,13 @@ fantome.appendChild(templateContent);
 <li>(**) p &lt; 1%</li>
 <li>(***) p &lt; 0.1%</li>
 </ul>
-<p>Pour l’IPR, on a un effet <code>année</code> significatif avec une pente négative <span class="math inline">\(\Rightarrow\)</span> la situation s’améliore au fil du temps, en moyenne sur l’ensemble des stations. L’effet de la présence du spirlin (<code>spiPrésence</code>) n’est pas significatif au seuil de 5%, pas plus que le terme d’interaction <code>annee:spiPrésence</code>.</p>
+<p>On entend par significativité le fait d’être significativement différent de zéro.</p>
+<p>L’intercept du modèle est sa constante. C’est la valeur que prendrait la métrique (ici en fait le log de la métrique) en l’an zéro en l’absence de spirlin.</p>
+<p><strong>Exemple sur le tableau sans interaction :</strong></p>
+<p>Pour la métrique <code>ner</code>, on a un effet <code>année</code> significatif avec un coefficient de 0.02. Ce coefficient est positif <span class="math inline">\(\Rightarrow\)</span> la métrique augmente au fil du temps, en moyenne sur l’ensemble des stations. L’effet de la présence du spirlin (<code>spiPrésence</code>) est significatif avec un coefficient de -1.093 (***). Les valeurs du log de la métriques, quelle que soit l’année, sont donc inférieures de -1.093 en présence du spirlin par rapport à son absence.</p>
+<p><strong>Exemple sur le tableau avec interaction :</strong></p>
+<p>Pour la métrique <code>dit</code>, on a un effet <code>année</code> significatif avec un coefficient de -0.014 (**). Ce coefficient est négatif <span class="math inline">\(\Rightarrow\)</span> la métrique diminue au fil du temps, en moyenne sur l’ensemble des stations. L’effet de la présence du spirlin (<code>spiPrésence</code>) n’est pas significatif au seuil de 5%, pas plus que le terme d’interaction <code>annee:spiPrésence</code>.</p>
+<p>Pour la métrique <code>dii</code>, on n’a pas d’effet <code>année</code> significatif <span class="math inline">\(\Rightarrow\)</span> la situation est stable au fil du temps, en moyenne sur l’ensemble des stations. L’effet de la présence du spirlin (<code>spiPrésence</code>) est significatif avec un coefficient de 201.938. La métrique est donc plus élevée en présence de spirlin en l’an zéro. Le terme d’interaction <code>annee:spiPrésence</code> est significatif avec un coefficient de -0.101 (***) donc en présence de spirlin, la métrique diminue au fil du temps.</p>
 </div>
 </div>
 
