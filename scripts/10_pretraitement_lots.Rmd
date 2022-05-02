@@ -21,11 +21,12 @@ library(aspe)
 library(tidyverse)
 library(COGiter)
 library(sf)
+
 ```
 
 
 ```{r, echo = FALSE}
-rdata_tables <- misc_nom_dernier_fichier(repertoire = "raw_data",
+rdata_tables <- misc_nom_dernier_fichier(repertoire = "../raw_data",
                                          pattern = "^tables")
 
 load(rdata_tables)
@@ -33,7 +34,7 @@ load(rdata_tables)
 
 
 ```{r, eval = FALSE}
-load(file = "raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargement autres tables
+load(file = "../raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargement autres tables
 ```
 
 
@@ -42,9 +43,8 @@ load(file = "raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargement a
 On utilise ici le package {tod} (pour Télécharger Open Data) qui permet d'accéder à divers jeux de données ouverts, dont les [flux WGS du Sandre](https://rpubs.com/kamoke/840172).
 
 ```{r, echo = FALSE}
-load("processed_data/ag.RData")
+load("../processed_data/ag.RData")
 ```
-
 
 
 ```{r, eval = FALSE}
@@ -271,6 +271,6 @@ save(ope_data,
      point_prelevement,
      station,
      classe_ipr,
-     file = "processed_data/spirlin_dfs.RData")
+     file = "../processed_data/spirlin_dfs.RData")
 ```
 
