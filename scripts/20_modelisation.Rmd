@@ -19,7 +19,6 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```{r}
 library(tidyverse)
 library(aspe)
-# install.packages("flextable")
 library(flextable)
 ```
 
@@ -31,7 +30,7 @@ library(flextable)
 On part des données prétraitées par le script précédent.
 
 ```{r}
-load(file = "processed_data/spirlin_dfs.RData")
+load(file = "../processed_data/spirlin_dfs.RData")
 ```
 
 Identifiants des stations avec du spirlin :
