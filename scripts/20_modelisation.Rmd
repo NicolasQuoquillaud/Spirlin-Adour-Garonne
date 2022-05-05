@@ -132,17 +132,17 @@ lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
 }
 
   # on cale le modèle
-  mod <- lm(formula = fm, 
+  mod <- glm(formula = fm, 
             data = model_data)
   
-  dist_cook <- cooks.distance(mod)
-  seuil_cook <- 4 / nrow(model_data)
-  model_data <- model_data %>% 
-    cbind(dist_cook) %>% # ajout de la colonne avec les distances
-    filter(dist_cook < seuil_cook) # suppression des observations avec distance > 4/N
+#  dist_cook <- cooks.distance(mod)
+#  seuil_cook <- 4 / nrow(model_data)
+#  model_data <- model_data %>% 
+#    cbind(dist_cook) %>% # ajout de la colonne avec les distances
+#    filter(dist_cook < seuil_cook) # suppression des observations avec distance > 4/N
   
-  mod <- lm(formula = fm, 
-            data = model_data)
+#  mod <- glm(formula = fm, 
+#            data = model_data)
 
   # récupération de ce qui ous intéresse dans les résultats et mise en forme
     if (interaction) {
@@ -178,10 +178,7 @@ lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
   
   # sortie
   resultat
-  plot(mod, which = 2)
-  shapiro.test(residuals(mod))
-  outlierTest(mod)
-  
+  anova(mod, test="Chisq")
 }
 ```
 
