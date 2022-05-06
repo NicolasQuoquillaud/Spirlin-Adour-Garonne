@@ -104,7 +104,7 @@ On transforme donc les métriques mais pas l'année où ça n'apporte rien.
 
 ```{r}
 mod_data <- mod_data %>%
-  mutate(across(ipr:dti, ~ log(.)))
+  mutate(across(ipr:dti, ~ sqrt(.)))
 ```
 
 
@@ -118,7 +118,6 @@ Création d'une fonction qui renvoie les résultats du modèle pour une métriqu
 
 On recherche donc les effets indépendants des stations, de l'année, de la présence du spirlin, et du terme d'interaction `spi x annee` pour détecter si les pentes temporelles diffèrent en présence et en absence de spirlin. 
  
-plot(mod, which = 2) # plot(reg1, 2)
 ```{r}
 lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
   
@@ -132,17 +131,17 @@ lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
 }
 
   # on cale le modèle
-  mod <- glm(formula = fm, 
+  mod <- lm(formula = fm, 
             data = model_data)
   
-#  dist_cook <- cooks.distance(mod)
-#  seuil_cook <- 4 / nrow(model_data)
-#  model_data <- model_data %>% 
-#    cbind(dist_cook) %>% # ajout de la colonne avec les distances
-#    filter(dist_cook < seuil_cook) # suppression des observations avec distance > 4/N
+  dist_cook <- cooks.distance(mod)
+  seuil_cook <- 4 / nrow(model_data)
+  model_data <- model_data %>% 
+    cbind(dist_cook) %>% # ajout de la colonne avec les distances
+    filter(dist_cook < seuil_cook) # suppression des observations avec distance > 4/N
   
-#  mod <- glm(formula = fm, 
-#            data = model_data)
+  mod <- lm(formula = fm, 
+            data = model_data)
 
   # récupération de ce qui ous intéresse dans les résultats et mise en forme
     if (interaction) {
@@ -175,10 +174,13 @@ lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
   
   # on nomme la ligne d'après le nom de la métrique
   row.names(resultat) <- metrique
-  
+  tableau <- data.frame(residus = mod$residuals)
+
   # sortie
   resultat
-  anova(mod, test="Chisq")
+  ggplot(data = tableau, aes(x = residus)) + geom_histogram(aes(y = ..density..), alpha = 0.5) + 
+    geom_density(alpha = 0.5) +
+    geom_vline(aes(xintercept=mean(residus, na.rm=T)), color="red", linetype="dashed", size=1)
 }
 ```
 
