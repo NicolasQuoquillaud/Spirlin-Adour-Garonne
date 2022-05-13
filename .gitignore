@@ -4,3 +4,5 @@
 .Ruserdata
 /scripts/rsconnect/
 /raw_data/
+/scripts/*.html
+/processed_data/
