@@ -1,0 +1,69 @@
+---
+title: "Spirlin dans le bassin Adour-Garonne"
+subtitle: "Modélisation des impacts"
+author: "OFB"
+date: "`r format(Sys.time(), 'Le %d %B %Y')`"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Chargement des packages et des données
+
+```{r}
+library(tidyverse)
+library(vegan)
+```
+
+On part des données prétraitées par le script précédent.
+
+```{r}
+load(file = "../processed_data/spirlin_dfs.RData")
+```
+
+
+# Préparation du tableau de données
+
+Passage de la table au format "large".
+
+```{r}
+data_indices <- data %>% 
+  pivot_wider(names_from = esp_code_alternatif,
+              values_from = effectif,
+              values_fill = 0)
+```
+
+Matrice des effectifs.
+
+```{r}
+matrice <- data_indices %>%
+  select(-(sta_id:annee))
+```
+
+Ici il faudra filtrer pour virer certains taxons.
+
+Calcul des indices :
+
+```{r}
+indices <- matrice %>% 
+  transmute(richesse = specnumber(.),
+         shannon = diversity(.),
+         simpson = diversity(., index = "simpson"))
+```
+
+Ajout des indices au dataframe des donnée :
+
+```{r}
+data_indices <- data_indices %>%
+  cbind(indices) %>% 
+  mutate(spi = ifelse(SPI > 0,
+                      "Présence",
+                      "Absence"))
+```
+
