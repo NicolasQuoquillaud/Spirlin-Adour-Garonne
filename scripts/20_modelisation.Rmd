@@ -104,7 +104,7 @@ On transforme donc les métriques mais pas l'année où ça n'apporte rien.
 
 ```{r}
 mod_data <- mod_data %>%
-  mutate(across(ipr:dti, ~ sqrt(.)))
+  mutate(across(ipr:dti, ~ log(.)))
 ```
 
 
@@ -177,10 +177,11 @@ lm_1_metrique <- function(model_data, metrique, interaction = TRUE) {
   tableau <- data.frame(residus = mod$residuals)
 
   # sortie
-  resultat
   ggplot(data = tableau, aes(x = residus)) + geom_histogram(aes(y = ..density..), alpha = 0.5) + 
     geom_density(alpha = 0.5) +
-    geom_vline(aes(xintercept=mean(residus, na.rm=T)), color="red", linetype="dashed", size=1)
+    geom_vline(aes(xintercept=mean(residus, na.rm=T)), color="red", linetype="dashed", size=1) + 
+    ggtitle("Histogramme du logarythme de IPR")
+  resultat
 }
 ```
 

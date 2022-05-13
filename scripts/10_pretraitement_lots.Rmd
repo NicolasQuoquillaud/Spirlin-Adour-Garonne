@@ -34,7 +34,7 @@ load(rdata_tables)
 
 
 ```{r, eval = FALSE}
-load(file = "../raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargement autres tables
+load(file = "raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargement autres tables
 ```
 
 
@@ -43,7 +43,7 @@ load(file = "../raw_data/tables_sauf_mei_2022_03_08_17_55_06.RData") # chargemen
 On utilise ici le package {tod} (pour Télécharger Open Data) qui permet d'accéder à divers jeux de données ouverts, dont les [flux WGS du Sandre](https://rpubs.com/kamoke/840172).
 
 ```{r, echo = FALSE}
-load("../processed_data/ag.RData")
+load("processed_data/ag.RData")
 ```
 
 
@@ -162,7 +162,7 @@ data <- ope_ag %>%
            pro_libelle,
            annee,
            esp_code_alternatif) %>%
-  summarise(effectif = sum(lop_effectif, narm = TRUE)) %>%
+  summarise(effectif = sum(lop_effectif, n.rm = TRUE)) %>%
   ungroup()
 ```
 
@@ -270,7 +270,7 @@ save(ope_data,
      operation_ipr,
      point_prelevement,
      station,
+     data,
      classe_ipr,
-     file = "../processed_data/spirlin_dfs.RData")
+     file = "processed_data/spirlin_dfs.RData")
 ```
-
