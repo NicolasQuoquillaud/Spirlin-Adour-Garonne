@@ -29,7 +29,7 @@ library (stats)
 On part des données prétraitées par le script précédent.
 
 ```{r}
-load(file = "processed_data/spirlin_dfs.RData")
+load(file = ".../processed_data/spirlin_dfs.RData")
 ```
 # Préparation du tableau de données
 
@@ -102,6 +102,8 @@ mode_data <- data_indices %>%
          simpson,
          pielou) %>% 
   mutate(pop_id = as.factor(pop_id))
+
+mode_data[!is.na(mode_data$pielou)]
 
 ```
 ## Distribution des variables
