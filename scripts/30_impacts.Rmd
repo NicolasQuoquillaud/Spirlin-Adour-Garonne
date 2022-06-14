@@ -36,7 +36,7 @@ load(file = ".../processed_data/spirlin_dfs.RData")
 Passage de la table au format "large".
 
 ```{r}
-data_indices <- data %>% 
+data_indices <- data_filtr %>% 
   pivot_wider(names_from = esp_code_alternatif,
               values_from = effectif,
               values_fill = 0)
