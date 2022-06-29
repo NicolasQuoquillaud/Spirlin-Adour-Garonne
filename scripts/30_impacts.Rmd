@@ -29,7 +29,7 @@ library (stats)
 On part des données prétraitées par le script précédent.
 
 ```{r}
-load(file = "processed_data/spirlin_dfs.RData")
+load(file = ".../processed_data/spirlin_dfs.RData")
 ```
 # Préparation du tableau de données
 
@@ -134,6 +134,8 @@ On transforme donc les métriques mais pas l'année où ça n'apporte rien.
 ```{r}
 mode_data <- mode_data %>%
   mutate(across(richesse:pielou, ~ log(.)))
+
+mode_data <- mode_data[!is.infinite(mode_data$simpson),]
 ```
 
 ## Construction des outils
@@ -260,12 +262,26 @@ sans_interraction <- map(.x = mes_indices,
          Année = annee)
 ```
 
-Affichage. Le tableau est mis en forme avec les fonctions du package `flextable`. L'IPR est distingué par l'arrière-plan de couleur.
+Affichage. Le tableau est mis en forme avec les fonctions du package `flextable`. La richesse est distingué par l'arrière-plan de couleur.
 
 Sans interaction `annee:spiPrésence` :
 
 ```{r}
-sans_interract %>% 
+sans_interraction %>% 
+  flextable() %>% 
+  align(j = 2:4, align = "center", part = "all") %>% 
+  set_table_properties(layout = "autofit", width = 1) %>% 
+  bg(i = 1, bg = "lightgreen")
+```
+Avec interaction `annee:spiPrésence` :
+
+```{r}
+res_interraction %>% 
+  flextable() %>% 
+  align(j = 2:5, align = "center", part = "all") %>% 
+  set_table_properties(layout = "autofit", width = 1) %>% 
+  bg(i = 1, bg = "lightgreen")
+```
   flextable() %>% 
   align(j = 2:4, align = "center", part = "all") %>% 
   set_table_properties(layout = "autofit", width = 1) %>% 
