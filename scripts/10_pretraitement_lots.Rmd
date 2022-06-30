@@ -26,7 +26,7 @@ library(selectsp)
 
 
 ```{r, echo = FALSE}
-rdata_tables <- misc_nom_dernier_fichier(repertoire = "../raw_data",
+rdata_tables <- misc_nom_dernier_fichier(repertoire = "raw_data",
                                          pattern = "^tables")
 
 load(rdata_tables)
@@ -164,31 +164,6 @@ data <- ope_ag %>%
            esp_code_alternatif) %>%
   summarise(effectif = sum(lop_effectif, n.rm = TRUE)) %>%
   ungroup()
-
-sp_to_remove = c("OCL", "ASA", "ASL", "CRC", "PCC", "PFL", "HBG")
-data_filtr <- data_filtr %>%
-      filter(!esp_code_alternatif %in% sp_to_remove)
-
-data_filtr <- data %>% 
-    mutate(esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "BRX", replacement = "BRE"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CAX", replacement = "CAS"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CAA", replacement = "CAS"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CAD", replacement = "CAS"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CAG", replacement = "CAS"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CAK", replacement = "CCO"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CCU", replacement = "CCO"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "CMI", replacement = "CCO"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "GAX", replacement = "GAH"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "GAM", replacement = "GAH"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "GOX", replacement = "GOU"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "GOO", replacement = "GOU"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "VAR", replacement = "VAN"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "BBX", replacement = "BBG"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "VAB", replacement = "VAI"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "VAC", replacement = "VAI"),
-           esp_code_alternatif = str_replace(esp_code_alternatif, pattern = "PHX", replacement = "VAI"))
-
-
 
 ```
 
