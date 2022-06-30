@@ -26,7 +26,7 @@ library(selectsp)
 
 
 ```{r, echo = FALSE}
-rdata_tables <- misc_nom_dernier_fichier(repertoire = "raw_data",
+rdata_tables <- misc_nom_dernier_fichier(repertoire = "../raw_data",
                                          pattern = "^tables")
 
 load(rdata_tables)
