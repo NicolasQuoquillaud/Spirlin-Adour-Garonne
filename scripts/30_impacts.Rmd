@@ -24,6 +24,7 @@ library(aspe)
 library(flextable)
 library(aspeQual)
 library (stats)
+library(AspeEEE)
 ```
 
 On part des données prétraitées par le script précédent.
@@ -33,10 +34,18 @@ load(file = ".../processed_data/spirlin_dfs.RData")
 ```
 # Préparation du tableau de données
 
+Filtrage des taxons que l'on veut garder
+On renomme les espèces que l'on veut rassembrer.
+```{r}
+df_propre <- data %>%
+  recode_and_filter_species(sp_to_remove = c("OCL", "ASA", "ASL", "CRC", "PCC", "PFL", "HBG"))
+
+```
+
 Passage de la table au format "large".
 
 ```{r}
-data_indices <- data %>% 
+data_indices <- df_propre %>% 
   pivot_wider(names_from = esp_code_alternatif,
               values_from = effectif,
               values_fill = 0)
@@ -48,8 +57,6 @@ Matrice des effectifs.
 matrice <- data_indices %>%
   select(-(sta_id:annee))
 ```
-
-Ici il faudra filtrer pour virer certains taxons.
 
 Calcul des indices :
 
