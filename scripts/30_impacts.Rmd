@@ -30,16 +30,18 @@ library(AspeEEE)
 On part des données prétraitées par le script précédent.
 
 ```{r}
-load(file = ".../processed_data/spirlin_dfs.RData")
+load(file = "../processed_data/spirlin_dfs.RData")
 ```
 # Préparation du tableau de données
 
-Filtrage des taxons que l'on veut garder
-On renomme les espèces que l'on veut rassembrer.
+Filtrage des taxons que l'on veut garder. On renomme les espèces que l'on veut rassembler. Ensuite un agrège pour ne plus avoir qu'un effectif par opération pour un code taxon.
+
 ```{r}
 df_propre <- data %>%
-  recode_and_filter_species(sp_to_remove = c("OCL", "ASA", "ASL", "CRC", "PCC", "PFL", "HBG"))
-
+  AspeEEE::recode_and_filter_species(sp_to_remove = c("OCL", "ASA", "ASL", "CRC", "PCC", "PFL", "HBG")) %>% 
+  group_by_at(vars(-effectif)) %>% # group_by par toutes les variables sauf effectif
+     summarise(effectif = sum(effectif, na.rm = TRUE), 
+               .groups = "drop")
 ```
 
 Passage de la table au format "large".
@@ -51,7 +53,7 @@ data_indices <- df_propre %>%
               values_fill = 0)
 ```
 
-Matrice des effectifs.
+Matrice des effectifs : on supprime les autres colonnes.
 
 ```{r}
 matrice <- data_indices %>%
@@ -63,9 +65,9 @@ Calcul des indices :
 ```{r}
 indices <- matrice %>% 
   transmute(richesse = specnumber(.),
-         shannon = diversity(.),
-         simpson = diversity(., index = "simpson"),
-         pielou = shannon/log(richesse))
+            shannon = diversity(.),
+            simpson = diversity(., index = "simpson"),
+            pielou = shannon/log(richesse))
 ```
 
 Ajout des indices au dataframe des donnée :
@@ -75,7 +77,7 @@ data_indices <- data_indices %>%
   cbind(indices)
 ```
 
-Identification des stations avec du spirlin :
+Identification des stations avec du spirlin (au moins sur une pêche) :
 
 ```{r}
 sta_avec_spi <- data_indices %>%
@@ -94,7 +96,7 @@ Sélection et enrichissement du tableau :
 
 
 ```{r}
-mode_data <- data_indices %>% 
+model_data <- data_indices %>% 
   filter(sta_id %in% sta_avec_spi) %>% 
   mutate(spi = ifelse(SPI > 0,
                       "Présence",
@@ -111,12 +113,13 @@ mode_data <- data_indices %>%
   mutate(pop_id = as.factor(pop_id))
 
 ```
+
 ## Distribution des variables
 
 Sans transformation :
 
 ```{r}
-gg <- mode_data %>% 
+gg <- model_data %>% 
   pivot_longer(cols = c(richesse:pielou, annee),
                names_to = "Indices",
                values_to = "valeur") %>% 
@@ -128,169 +131,49 @@ gg <- mode_data %>%
 gg
 
 ```
-Certaines métriques sont distribuées de manière très asymétrique (en particulier `dii`), donc on essaye une transformation log :
+Voyons si les distributions ont meilleurs mine après transformation log.
 
 ```{r}
 gg + scale_x_log10()
 ```
 
->Les distributions sont plus proches de distributions en cloche après transformations log.
+Ce n'est pas mieux $\Rightarrow$ on ne transforme pas.
 
 On transforme donc les métriques mais pas l'année où ça n'apporte rien.
 
-```{r}
-mode_data <- mode_data %>%
-  mutate(across(richesse:pielou, ~ log(.)))
+## Modélisation
 
-mode_data <- mode_data[!is.infinite(mode_data$simpson),]
-```
+La fonction `lm_annee_spi()` du package `AspeEEE` permet de modéliser les indices en fonction de l'année et de la présence / absence du spirlin. Ici le modèle employé est linéaire, de la forme :
 
-## Construction des outils
+`indice ~ pop_id + annee + spi`
 
-
-Création d'une fonction qui renvoie les résultats du modèle pour une métrique (ou sur l'IPR, ou sur n'importe quoi du genre). Ici, le modèle employé est linéaire, de la forme :
-
-`métrique ~ pop_id + annee * spi`
-
-On recherche donc les effets indépendants des stations, de l'année, de la présence du spirlin, et du terme d'interaction `spi x annee` pour détecter si les pentes temporelles diffèrent en présence et en absence de spirlin. 
- 
-```{r}
-lm_1_indice <- function(model_data, Indice, interaction = TRUE) {
-  
-  # construction de la formule en fonction de la variable dépendante
-  if (interaction) {
-    fm <- as.formula(paste0(Indice,
-                            " ~ pop_id + annee * spi"))
-  } else {
-    fm <- as.formula(paste0(Indice,
-                            " ~ pop_id + annee + spi"))
-}
-
-  # on cale le modèle
-  mod <- lm(formula = fm, 
-            data = model_data)
-  
-  dist_cook <- cooks.distance(mod)
-  seuil_cook <- 4 / nrow(model_data)
-  model_data <- model_data %>% 
-    cbind(dist_cook) %>% # ajout de la colonne avec les distances
-    filter(dist_cook < seuil_cook) # suppression des observations avec distance > 4/N
-  
-  mod <- lm(formula = fm, 
-            data = model_data)
-
-  # récupération de ce qui ous intéresse dans les résultats et mise en forme
-    if (interaction) {
-  resultat <-
-    summary(mod)$coefficients[c("(Intercept)", "annee", "spiPrésence", "annee:spiPrésence"), ]
-    } else {
-    resultat <-
-    summary(mod)$coefficients[c("(Intercept)", "annee", "spiPrésence"), ]
-    }
-    
-  resultat <-resultat %>%   
-    as.data.frame() %>%
-    select(coef = Estimate,
-           pval = `Pr(>|t|)`) %>%
-    mutate(
-      sig = case_when(
-        pval > 0.05 ~ "NS",
-        pval <= 0.05 & pval > 0.01 ~ "*",
-        pval <= 0.01 & pval > 0.001 ~ "**",
-        TRUE ~ "***"
-      )
-    ) %>%
-    mutate(text = paste0(round(coef, 3),
-                         " (",
-                         sig,
-                         ")"
-    )) %>%
-    select(text) %>%
-    t()
-  
-  # on nomme la ligne d'après le nom de la métrique
-  row.names(resultat) <- Indice
-  tableau <- data.frame(residus = mod$residuals)
-
-  # sortie
-  ggplot(data = tableau, aes(x = residus)) + geom_histogram(aes(y = ..density..), alpha = 0.5) + 
-    geom_density(alpha = 0.5) +
-    geom_vline(aes(xintercept=mean(residus, na.rm=T)), color="red", linetype="dashed", size=1) + 
-    ggtitle("Histogramme du logarythme de richesse")
-  resultat
-}
-```
-
-
-Essai sur la richesse
 
 ```{r}
-lm_1_indice(model_data = mode_data,
-              Indice = "richesse",
-              interaction = FALSE)
-```
-
-## Application
-
-Vecteur contenant les noms des métriques à modéliser (à partir des noms des colonnes entre richesse et simpson).
-
-```{r}
-mes_indices <- mode_data %>% 
+indices <- model_data %>% 
   select(richesse:pielou) %>% 
   colnames()
 
-mes_indices
+indices
 ```
 
-Modélisation sur l'ensemble.
-
-La fonction `map()` permet d'appliquer la fonction non pas à un indice, mais à l'ensemble de indices du vecteur `mes_indices`. Elle retourne une liste de `dataframes` (un par indice). Ces dataframes sont ensuite empilés et on récupère les noms des lignes dans une colonne puis on renomme certaines colonnes. 
+Ajustement des modèles. On précise `interaction = FALSE` car du fait de la colinéarité entre `annee` et `spi`, un terme d'interaction serait délicat à interpréter.
 
 ```{r}
-res_interraction <- map(.x = mes_indices,
-                      .f = lm_1_indice,
-                      model_data = mode_data) %>% 
-  reduce(rbind) %>% 
-  as.data.frame() %>% 
-  rownames_to_column() %>% 
-  rename(Intercept = `(Intercept)`,
-         Indice = rowname,
-         Année = annee)
+model_data <- model_data %>% 
+  filter(pielou > 0)
 
-sans_interraction <- map(.x = mes_indices,
-                      .f = lm_1_indice,
-                      model_data = mode_data,
-                      interaction = FALSE) %>% 
-  reduce(rbind) %>% 
-  as.data.frame() %>% 
-  rownames_to_column() %>% 
-  rename(Intercept = `(Intercept)`,
-         Indice = rowname,
-         Année = annee)
+res <- lm_annee_spi(model_data = model_data,
+                    metriques = indices,
+                    interaction = FALSE)
 ```
 
-Affichage. Le tableau est mis en forme avec les fonctions du package `flextable`. La richesse est distingué par l'arrière-plan de couleur.
+Affichage. Le tableau est mis en forme avec les fonctions du package `flextable`. L'IPR est distingué par l'arrière-plan de couleur.
 
-Sans interaction `annee:spiPrésence` :
 
 ```{r}
-sans_interraction %>% 
+res %>% 
   flextable() %>% 
   align(j = 2:4, align = "center", part = "all") %>% 
-  set_table_properties(layout = "autofit", width = 1) %>% 
-  bg(i = 1, bg = "lightgreen")
+  set_table_properties(layout = "autofit", width = 1)
 ```
-Avec interaction `annee:spiPrésence` :
 
-```{r}
-res_interraction %>% 
-  flextable() %>% 
-  align(j = 2:5, align = "center", part = "all") %>% 
-  set_table_properties(layout = "autofit", width = 1) %>% 
-  bg(i = 1, bg = "lightgreen")
-```
-  flextable() %>% 
-  align(j = 2:4, align = "center", part = "all") %>% 
-  set_table_properties(layout = "autofit", width = 1) %>% 
-  bg(i = 1, bg = "lightgreen")
-```
